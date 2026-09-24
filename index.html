@@ -1,0 +1,1390 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Калории по фото</title>
+<meta name="description" content="Минималистичный трекер питания: сфотографируйте блюдо — AI оценит калории и БЖУ.">
+<meta name="theme-color" content="#F7F6F3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1C1C1E" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%238A9A5B'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%23fff' stroke-width='2.5'/%3E%3C/svg%3E">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Цвета Tailwind ссылаются на CSS-переменные — так светлая и тёмная темы работают автоматически
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          bg: 'var(--bg)', surface: 'var(--surface)', ink: 'var(--text)', muted: 'var(--muted)',
+          line: 'var(--border)', accent: 'var(--accent)', 'accent-soft': 'var(--accent-soft)',
+          warn: 'var(--warn)', 'warn-text': 'var(--warn-text)'
+        }
+      }
+    }
+  };
+</script>
+
+<style>
+  /* ================= Дизайн-токены ================= */
+  :root {
+    --bg: #F7F6F3;
+    --surface: #FFFFFF;
+    --text: #2F3437;
+    --muted: #6B6E71;        /* чуть темнее #8B8E91 из PRD — для контраста WCAG AA на мелком тексте */
+    --border: #E8E6E1;
+    --accent: #8A9A5B;
+    --accent-soft: #E9EDDF;
+    --warn: #C9896B;
+    --warn-text: #A0613F;    /* терракотовый текст с контрастом AA */
+    --btn-bg: #6B7A3F;       /* заливка кнопок: тот же оливковый, но с контрастом AA для белого текста */
+    --btn-fg: #FFFFFF;
+    --skeleton: #EEECE7;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --backdrop: rgba(28,28,30,.32);
+    --toast-action: #C5D19E;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1C1C1E;
+      --surface: #2A2A2C;
+      --text: #ECECEC;
+      --muted: #9A9A9E;
+      --border: #3A3A3C;
+      --accent: #A3B18A;
+      --accent-soft: #34392B;
+      --warn: #D39B80;
+      --warn-text: #D39B80;
+      --btn-bg: #A3B18A;
+      --btn-fg: #1C1C1E;
+      --skeleton: #343436;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+      --backdrop: rgba(0,0,0,.5);
+      --toast-action: #55652D;
+      color-scheme: dark;
+    }
+  }
+
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
+
+  .card { background: var(--surface); border-radius: 18px; box-shadow: var(--shadow); }
+
+  /* Кнопки */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+    min-height: 48px; padding: 0 1.1rem; border-radius: 14px;
+    font-weight: 600; font-size: 16px;
+    transition: transform .15s ease-out, opacity .15s ease-out, background-color .15s ease-out;
+  }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .45; pointer-events: none; }
+  .btn-primary { background: var(--btn-bg); color: var(--btn-fg); }
+  .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-soft { background: var(--accent-soft); color: var(--text); }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; border-radius: 12px; color: var(--muted);
+    transition: background-color .15s ease-out, color .15s ease-out;
+  }
+  .icon-btn:hover { background: var(--accent-soft); color: var(--text); }
+
+  .photo-btn {
+    width: 100%; min-height: 76px; border-radius: 24px;
+    background: var(--btn-bg); color: var(--btn-fg);
+    font-size: 17px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: .75rem;
+    box-shadow: var(--shadow);
+    transition: transform .15s ease-out, filter .15s ease-out;
+  }
+  .photo-btn:hover { filter: brightness(1.04); }
+  .photo-btn:active { transform: scale(.985); }
+
+  .field {
+    width: 100%; min-height: 48px; padding: 0 14px; border-radius: 14px;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 16px; /* 16px — чтобы iOS не зумил поле при фокусе */
+    transition: border-color .15s ease-out;
+  }
+  .field::placeholder { color: var(--muted); opacity: 1; }
+  .field:focus { outline: none; border-color: var(--accent); }
+  select.field { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%238B8E91' stroke-width='1.6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
+  input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+
+  /* Прогресс */
+  .bar { height: 6px; border-radius: 99px; background: var(--accent-soft); overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .25s ease-out, background-color .25s ease-out; }
+  .bar.over > span { background: var(--warn); }
+
+  /* Скелетон */
+  .sk { background: var(--skeleton); border-radius: 10px; position: relative; overflow: hidden; }
+  .sk::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
+    transform: translateX(-100%); animation: shimmer 1.3s ease-in-out infinite;
+  }
+  @media (prefers-color-scheme: dark) { .sk::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent); } }
+  @keyframes shimmer { to { transform: translateX(100%); } }
+
+  /* Записи истории */
+  .entry { position: relative; border-radius: 16px; overflow: hidden; }
+  .entry-bg {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 22px; background: var(--warn); color: #fff; border-radius: 16px;
+  }
+  .entry-row {
+    position: relative; display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; background: var(--surface); border-radius: 16px; box-shadow: var(--shadow);
+    touch-action: pan-y; transition: transform .2s ease-out;
+  }
+  .entry.removing { transition: max-height .2s ease-out, opacity .2s ease-out, margin .2s ease-out; opacity: 0; }
+  .thumb { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; flex: none; background: var(--accent-soft); }
+  .thumb-icon { display: flex; align-items: center; justify-content: center; color: var(--accent); }
+  .del-btn { opacity: 0; transition: opacity .15s ease-out; }
+  .entry-row:hover .del-btn, .del-btn:focus-visible { opacity: 1; }
+  @media (hover: none) {
+    /* На сенсорных экранах удаление — свайпом; кнопка остаётся доступной для скринридеров */
+    .del-btn { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; opacity: 1; }
+  }
+
+  /* Нижняя шторка и модалка */
+  .backdrop {
+    position: fixed; inset: 0; background: var(--backdrop); z-index: 40;
+    opacity: 0; visibility: hidden; transition: opacity .2s ease-out, visibility 0s .2s;
+  }
+  .backdrop.open { opacity: 1; visibility: visible; transition: opacity .2s ease-out; }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    margin: 0 auto; max-width: 480px; max-height: 92vh; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--surface); border-radius: 20px 20px 0 0;
+    padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 24px rgba(0,0,0,.08);
+    transform: translateY(105%); visibility: hidden;
+    transition: transform .24s ease-out, visibility 0s .24s;
+  }
+  .sheet.open { transform: none; visibility: visible; transition: transform .24s ease-out; }
+  @media (min-width: 560px) {
+    .sheet { bottom: 24px; border-radius: 20px; max-height: calc(100vh - 48px); }
+  }
+  .handle { width: 36px; height: 4px; border-radius: 99px; background: var(--border); margin: 4px auto 12px; }
+
+  .macro { background: var(--bg); border-radius: 12px; padding: 8px 10px; text-align: center; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 10px; border-radius: 99px; background: var(--accent-soft); }
+  .pill-warn { color: var(--warn-text); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+
+  /* Toast */
+  .toast {
+    position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 60;
+    transform: translate(-50%, 16px); opacity: 0; visibility: hidden;
+    display: flex; align-items: center; gap: 4px;
+    width: max-content; max-width: calc(100% - 32px);
+    background: var(--text); color: var(--bg); border-radius: 14px; padding: 4px 4px 4px 16px;
+    font-size: 15px; box-shadow: 0 4px 16px rgba(0,0,0,.15);
+    transition: transform .2s ease-out, opacity .2s ease-out, visibility 0s .2s;
+  }
+  .toast.show { transform: translate(-50%, 0); opacity: 1; visibility: visible; transition: transform .2s ease-out, opacity .2s ease-out; }
+  .toast button { min-height: 44px; padding: 0 12px; border-radius: 10px; font-weight: 600; color: var(--toast-action); }
+  .toast:not(.has-action) { padding: 12px 16px; }
+
+  /* Drag & drop */
+  .dropzone {
+    position: fixed; inset: 12px; z-index: 70; border-radius: 24px;
+    border: 2px dashed var(--accent); background: color-mix(in srgb, var(--bg) 88%, transparent);
+    display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600;
+    opacity: 0; visibility: hidden; transition: opacity .15s ease-out, visibility 0s .15s; pointer-events: none;
+  }
+  .dropzone.show { opacity: 1; visibility: visible; transition: opacity .15s ease-out; }
+
+  .fade-in { animation: fadeIn .2s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+
+<body class="min-h-screen">
+<div id="app" class="mx-auto w-full max-w-[480px] px-4 pb-24" style="padding-top: max(12px, env(safe-area-inset-top));">
+
+  <!-- Шапка -->
+  <header class="flex items-center justify-between py-2">
+    <h1 id="dateTitle" class="text-[17px] font-semibold">Сегодня</h1>
+    <button id="settingsBtn" class="icon-btn -mr-2" type="button" aria-label="Настройки">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+  </header>
+
+  <!-- Плашка демо-режима -->
+  <div id="demoBanner" class="hidden mt-1 mb-2 flex items-start gap-2 rounded-2xl bg-accent-soft px-4 py-3 text-[13px]">
+    <span id="demoText" class="flex-1">Демо-режим. Добавьте API-ключ в настройках для реального распознавания.</span>
+    <button id="demoOpenSettings" type="button" class="font-semibold underline underline-offset-2 whitespace-nowrap">Настройки</button>
+  </div>
+
+  <main id="main">
+    <!-- Прогресс дня -->
+    <section class="card p-5 mt-2" aria-labelledby="progressLabel">
+      <h2 id="progressLabel" class="sr-only">Прогресс дня</h2>
+      <div class="flex items-end justify-between gap-4">
+        <div>
+          <div class="text-[13px] text-muted">Съедено</div>
+          <div class="tnum text-[30px] font-semibold leading-tight"><span id="eaten">0</span></div>
+        </div>
+        <div class="text-right">
+          <div id="leftLabel" class="text-[13px] text-muted">Осталось</div>
+          <div class="tnum text-[20px] font-medium leading-tight"><span id="left">1 500</span> <span class="text-[15px] text-muted">ккал</span></div>
+        </div>
+      </div>
+      <div id="bar" class="bar mt-4" role="progressbar" aria-label="Съедено от дневной нормы" aria-valuemin="0" aria-valuemax="1500" aria-valuenow="0"><span style="width:0%"></span></div>
+      <div class="mt-3 flex justify-between text-[13px] text-muted tnum">
+        <span>Б <b id="sumP" class="font-medium text-ink">0</b> г</span>
+        <span>Ж <b id="sumF" class="font-medium text-ink">0</b> г</span>
+        <span>У <b id="sumC" class="font-medium text-ink">0</b> г</span>
+        <span>Норма <b id="goalView" class="font-medium text-ink">1 500</b></span>
+      </div>
+    </section>
+
+    <!-- Кнопка фото -->
+    <section class="mt-5">
+      <button id="photoBtn" type="button" class="photo-btn">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        Сфотографировать блюдо
+      </button>
+      <div class="mt-1 text-center text-[13px] text-muted">
+        <button id="galleryBtn" type="button" class="min-h-[44px] px-2 underline-offset-2 hover:underline">или выбрать фото<span class="pointer-fine"> · можно перетащить сюда</span></button>
+      </div>
+      <input id="cameraInput" type="file" accept="image/*" capture="environment" class="hidden" tabindex="-1" aria-hidden="true">
+      <input id="fileInput" type="file" accept="image/*" class="hidden" tabindex="-1" aria-hidden="true">
+    </section>
+
+    <!-- Текстовый ввод -->
+    <form id="textForm" class="mt-2 relative" autocomplete="off">
+      <label for="textInput" class="sr-only">Описание съеденного</label>
+      <input id="textInput" class="field pr-12" type="text" maxlength="300" placeholder="Или опишите, что съели…" enterkeyhint="send">
+      <button type="submit" class="icon-btn absolute right-0.5 top-0.5" aria-label="Отправить описание">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </form>
+
+    <!-- История -->
+    <section class="mt-7" aria-labelledby="historyTitle">
+      <div class="flex items-baseline justify-between mb-3 px-1">
+        <h2 id="historyTitle" class="text-[15px] font-semibold">Приёмы пищи</h2>
+        <span id="historyCount" class="text-[13px] text-muted"></span>
+      </div>
+      <ul id="history" class="space-y-2"></ul>
+      <p id="emptyState" class="hidden py-10 text-center text-[15px] text-muted">Пока ничего. Сфотографируйте первый приём пищи</p>
+    </section>
+  </main>
+</div>
+
+<!-- Карточка подтверждения -->
+<div id="sheetBackdrop" class="backdrop"></div>
+<section id="sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="handle" aria-hidden="true"></div>
+  <h2 id="sheetTitle" class="sr-only">Новая запись</h2>
+  <div id="sheetBody"></div>
+</section>
+
+<!-- Настройки -->
+<div id="settingsBackdrop" class="backdrop"></div>
+<section id="settings" class="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="handle" aria-hidden="true"></div>
+  <div class="flex items-center justify-between mb-3">
+    <h2 id="settingsTitle" class="text-[17px] font-semibold">Настройки</h2>
+    <button id="settingsClose" type="button" class="icon-btn -mr-2" aria-label="Закрыть настройки">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+
+  <div class="space-y-5">
+    <div>
+      <label for="goalInput" class="block text-[13px] text-muted mb-1.5">Дневная норма, ккал</label>
+      <input id="goalInput" class="field tnum" type="number" inputmode="numeric" min="500" max="10000" step="50">
+    </div>
+
+    <div>
+      <label for="providerSelect" class="block text-[13px] text-muted mb-1.5">Распознавание</label>
+      <select id="providerSelect" class="field">
+        <option value="mock">Демо (без ключа)</option>
+        <option value="openai">OpenAI</option>
+        <option value="gemini">Google Gemini</option>
+      </select>
+    </div>
+
+    <div id="aiFields" class="space-y-5">
+      <div>
+        <label for="modelInput" class="block text-[13px] text-muted mb-1.5">Модель</label>
+        <input id="modelInput" class="field" type="text" list="modelList" spellcheck="false" autocapitalize="off">
+        <datalist id="modelList"></datalist>
+      </div>
+      <div>
+        <label for="keyInput" class="block text-[13px] text-muted mb-1.5">API-ключ</label>
+        <div class="relative">
+          <input id="keyInput" class="field pr-[52px]" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Вставьте ключ">
+          <button id="keyToggle" type="button" class="icon-btn absolute right-0.5 top-0.5" aria-label="Показать ключ" aria-pressed="false">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <p class="mt-2 text-[13px] text-muted">Ключ хранится только в этом браузере и отправляется напрямую провайдеру.</p>
+      </div>
+    </div>
+
+    <div class="border-t border-line pt-5">
+      <div class="text-[13px] text-muted mb-2">Данные</div>
+      <div class="grid grid-cols-2 gap-2">
+        <button id="exportBtn" type="button" class="btn btn-ghost">Экспорт JSON</button>
+        <button id="importBtn" type="button" class="btn btn-ghost">Импорт JSON</button>
+      </div>
+      <input id="importInput" type="file" accept="application/json,.json" class="hidden" tabindex="-1" aria-hidden="true">
+      <button id="clearBtn" type="button" class="btn w-full mt-2 text-warn-text">Очистить все данные</button>
+    </div>
+
+    <button id="settingsDone" type="button" class="btn btn-primary w-full">Готово</button>
+  </div>
+</section>
+
+<!-- Toast -->
+<div id="toast" class="toast" role="status" aria-live="polite">
+  <span id="toastText"></span>
+  <button id="toastAction" type="button" class="hidden">Отменить</button>
+</div>
+
+<!-- Зона drag & drop -->
+<div id="dropzone" class="dropzone" aria-hidden="true">Отпустите, чтобы добавить фото</div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   УТИЛИТЫ
+   ===================================================================== */
+const $ = (sel, root = document) => root.querySelector(sel);
+const pad = n => String(n).padStart(2, '0');
+const dayKeyOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const todayKey = () => dayKeyOf(new Date());
+// Локальное время без часового пояса: 2026-09-24T08:15:00
+const localIso = d => `${dayKeyOf(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+const fmt = n => Math.round(n || 0).toLocaleString('ru-RU');
+const round = v => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.round(n) : 0; };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+  : 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Ошибка с понятным пользователю текстом
+class AppError extends Error {
+  constructor(message, code = 'generic') { super(message); this.code = code; }
+}
+
+const ICONS = {
+  text: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11h18M5 11a7 7 0 0 0 14 0M8 6c0-1 1-2 2-2M12 7c0-1.5 1-3 2.5-3"/></svg>',
+  trash: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>',
+  alert: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>',
+};
+
+/* =====================================================================
+   STATE — состояние приложения
+   ===================================================================== */
+const DEFAULT_MODELS = { openai: 'gpt-4o-mini', gemini: 'gemini-2.5-flash' };
+const MODEL_SUGGESTIONS = {
+  openai: ['gpt-4o-mini', 'gpt-4o'],
+  gemini: ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'],
+};
+const DEFAULT_SETTINGS = { dailyGoal: 1500, provider: 'mock', apiKey: '', model: '' };
+
+const state = {
+  day: todayKey(),     // текущий день (YYYY-MM-DD)
+  settings: { ...DEFAULT_SETTINGS },
+  entries: [],         // записи за сегодня, новые сверху
+  pending: null,       // текущий запрос к AI: { source, image, thumb, text }
+  draft: null,         // результат AI, который правит пользователь
+  reqSeq: 0,           // счётчик запросов — чтобы игнорировать устаревшие ответы
+  lastDeleted: null,   // для «Отменить»
+};
+
+/* =====================================================================
+   STORAGE — работа с localStorage (всё в try/catch)
+   ===================================================================== */
+const isQuotaError = e => !!e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014);
+
+function sanitizeEntry(e) {
+  if (!e || typeof e !== 'object') return null;
+  return {
+    id: String(e.id || uid()),
+    createdAt: typeof e.createdAt === 'string' ? e.createdAt : localIso(new Date()),
+    source: e.source === 'text' ? 'text' : 'photo',
+    name: String(e.name || 'Без названия').slice(0, 120),
+    grams: round(e.grams), kcal: round(e.kcal),
+    protein: round(e.protein), fat: round(e.fat), carbs: round(e.carbs),
+    thumb: typeof e.thumb === 'string' && e.thumb.startsWith('data:image/') ? e.thumb : null,
+    note: typeof e.note === 'string' ? e.note.slice(0, 300) : '',
+  };
+}
+
+const Storage = {
+  read(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw == null ? fallback : JSON.parse(raw);
+    } catch { return fallback; }
+  },
+  // Возвращает 'ok' | 'quota' | 'error'
+  write(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); return 'ok'; }
+    catch (e) { return isQuotaError(e) ? 'quota' : 'error'; }
+  },
+  remove(key) { try { localStorage.removeItem(key); } catch { /* ничего */ } },
+  keys() { try { return Object.keys(localStorage); } catch { return []; } },
+
+  loadSettings() {
+    const s = this.read('settings', null);
+    const out = { ...DEFAULT_SETTINGS };
+    if (s && typeof s === 'object') {
+      const goal = Number(s.dailyGoal);
+      if (Number.isFinite(goal) && goal >= 500 && goal <= 10000) out.dailyGoal = Math.round(goal);
+      if (['mock', 'openai', 'gemini'].includes(s.provider)) out.provider = s.provider;
+      if (typeof s.apiKey === 'string') out.apiKey = s.apiKey;
+      if (typeof s.model === 'string') out.model = s.model;
+    }
+    if (out.provider !== 'mock' && !out.model) out.model = DEFAULT_MODELS[out.provider];
+    return out;
+  },
+  saveSettings(s) { return this.write('settings', s) === 'ok'; },
+
+  entryDays() {
+    return this.keys().filter(k => /^entries:\d{4}-\d{2}-\d{2}$/.test(k)).map(k => k.slice(8)).sort();
+  },
+  loadEntries(day) {
+    const arr = this.read('entries:' + day, []);
+    return Array.isArray(arr) ? arr.map(sanitizeEntry).filter(Boolean) : [];
+  },
+  // При переполнении предлагает удалить старые миниатюры и повторяет запись
+  saveEntries(day, list) {
+    let r = this.write('entries:' + day, list);
+    if (r === 'quota') {
+      const ok = confirm('Память браузера заполнена. Удалить фото-миниатюры старше 30 дней? Сами записи сохранятся.');
+      if (ok && this.purgeOldThumbs(30) > 0) r = this.write('entries:' + day, list);
+    }
+    return r;
+  },
+  purgeOldThumbs(days) {
+    const cutoff = dayKeyOf(new Date(Date.now() - days * 864e5));
+    let count = 0;
+    for (const day of this.entryDays()) {
+      if (day >= cutoff) continue;
+      const list = this.loadEntries(day);
+      let changed = false;
+      for (const e of list) if (e.thumb) { e.thumb = null; changed = true; count++; }
+      if (changed) this.write('entries:' + day, list);
+    }
+    return count;
+  },
+  clearAll() {
+    this.remove('settings');
+    for (const d of this.entryDays()) this.remove('entries:' + d);
+  },
+};
+
+/* =====================================================================
+   AI — распознавание через OpenAI / Gemini / mock
+   ===================================================================== */
+const SYSTEM_PROMPT = `Ты — нутрициолог. Определи еду на изображении (или в тексте), оцени вес порции и пищевую ценность. Отвечай ТОЛЬКО валидным JSON без пояснений и без markdown по схеме ниже. Названия на русском.
+
+Схема ответа:
+{"name": string, "items": [{"name": string, "grams": number, "kcal": number, "protein": number, "fat": number, "carbs": number}], "total": {"grams": number, "kcal": number, "protein": number, "fat": number, "carbs": number}, "confidence": "high" | "medium" | "low"}
+
+Правила:
+- "name" — короткое общее название блюда или приёма пищи.
+- grams, protein, fat, carbs — в граммах; kcal — в килокалориях; только числа.
+- "total" — сумма по "items".
+- Если вес не указан, оцени типичную порцию по фото или описанию.
+- "confidence" — насколько ты уверен в оценке.
+- Если на изображении нет еды или текст не описывает еду, верни ровно {"error": "no_food"}.`;
+
+const userPrompt = p => p.text
+  ? `Что съедено: «${p.text}». Оцени пищевую ценность.`
+  : 'Определи еду на фото и оцени пищевую ценность.';
+
+// Убираем обёртку ```json и достаём объект
+function parseJson(raw) {
+  const s = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try { return JSON.parse(s); } catch { /* пробуем дальше */ }
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a !== -1 && b > a) { try { return JSON.parse(s.slice(a, b + 1)); } catch { /* ниже */ } }
+  throw new AppError('Не удалось разобрать ответ AI. Попробуйте ещё раз.', 'parse');
+}
+
+// Проверка и нормализация ответа модели
+function normalizeResult(obj, source) {
+  if (!obj || typeof obj !== 'object') throw new AppError('Не удалось разобрать ответ AI. Попробуйте ещё раз.', 'parse');
+  if (obj.error) {
+    if (obj.error === 'no_food') {
+      throw new AppError(source === 'text' ? 'Не удалось распознать еду в описании' : 'Не удалось найти еду на фото', 'no_food');
+    }
+    throw new AppError('AI не смог обработать запрос. Попробуйте ещё раз.', 'parse');
+  }
+  const t = obj.total && typeof obj.total === 'object' ? obj.total : {};
+  if (typeof obj.name !== 'string' || !obj.name.trim() || t.kcal == null || !Number.isFinite(Number(t.kcal))) {
+    throw new AppError('Ответ AI неполный. Попробуйте ещё раз.', 'parse');
+  }
+  const items = (Array.isArray(obj.items) ? obj.items : [])
+    .filter(i => i && typeof i === 'object' && i.name)
+    .map(i => ({ name: String(i.name).slice(0, 80), grams: round(i.grams), kcal: round(i.kcal), protein: round(i.protein), fat: round(i.fat), carbs: round(i.carbs) }));
+  const sum = k => items.reduce((acc, i) => acc + i[k], 0);
+  const pick = k => (t[k] != null && Number.isFinite(Number(t[k]))) ? round(t[k]) : sum(k);
+  let grams = pick('grams');
+  if (!grams) grams = 100; // крайний случай: модель не дала вес — считаем на 100 г
+  return {
+    name: obj.name.trim().slice(0, 120),
+    items,
+    total: { grams, kcal: round(t.kcal), protein: pick('protein'), fat: pick('fat'), carbs: pick('carbs') },
+    confidence: ['high', 'medium', 'low'].includes(obj.confidence) ? obj.confidence : 'medium',
+  };
+}
+
+// fetch с понятными ошибками и таймаутом
+async function apiFetch(url, options, model) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);
+  let res;
+  try {
+    res = await fetch(url, { ...options, signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === 'AbortError') throw new AppError('Сервер слишком долго не отвечает. Попробуйте ещё раз.', 'network');
+    if (!navigator.onLine) throw new AppError('Нет подключения к интернету.', 'network');
+    // OpenAI отдаёт ошибку 401 без CORS-заголовков, поэтому браузер видит её как сетевую
+    if (url.includes('openai.com')) throw new AppError('Не удалось получить ответ от OpenAI. Чаще всего это неверный API-ключ — проверьте его в настройках. Также запрос может блокировать сеть или расширение браузера.', 'network');
+    throw new AppError('Нет связи с сервером. Проверьте интернет. Если сеть в порядке — запрос мог быть заблокирован браузером (CORS) или расширением.', 'network');
+  } finally { clearTimeout(timer); }
+
+  if (res.ok) {
+    try { return await res.json(); }
+    catch { throw new AppError('Не удалось разобрать ответ AI. Попробуйте ещё раз.', 'parse'); }
+  }
+
+  let detail = '';
+  try { const j = await res.json(); detail = j?.error?.message || ''; } catch { /* пусто */ }
+  const low = detail.toLowerCase();
+  if (res.status === 401 || res.status === 403 || low.includes('api key') || low.includes('api_key')) {
+    throw new AppError('Неверный API-ключ. Проверьте его в настройках.', 'auth');
+  }
+  if (res.status === 429) {
+    throw new AppError(low.includes('quota') || low.includes('billing')
+      ? 'Превышен лимит запросов или закончилась квота на аккаунте провайдера.'
+      : 'Превышен лимит запросов. Подождите немного и попробуйте снова.', 'rate');
+  }
+  if (res.status === 404) throw new AppError(`Модель «${model}» не найдена. Проверьте название в настройках.`, 'model');
+  if (res.status >= 500) throw new AppError(`Сервис провайдера временно недоступен (код ${res.status}). Попробуйте позже.`, 'server');
+  throw new AppError(`Ошибка запроса (код ${res.status})${detail ? ': ' + detail.slice(0, 160) : ''}`, 'http');
+}
+
+async function callOpenAI(p, s) {
+  const content = [{ type: 'text', text: userPrompt(p) }];
+  if (p.image) content.push({ type: 'image_url', image_url: { url: p.image } });
+  const data = await apiFetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${s.apiKey.trim()}` },
+    body: JSON.stringify({
+      model: s.model,
+      temperature: 0.2,
+      max_tokens: 800,
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content }],
+    }),
+  }, s.model);
+  return data?.choices?.[0]?.message?.content ?? '';
+}
+
+async function callGemini(p, s) {
+  const parts = [{ text: userPrompt(p) }];
+  if (p.image) parts.push({ inline_data: { mime_type: 'image/jpeg', data: p.image.split(',')[1] } });
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(s.model)}:generateContent`;
+  const data = await apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': s.apiKey.trim() },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ role: 'user', parts }],
+      generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
+    }),
+  }, s.model);
+  if (data?.promptFeedback?.blockReason) throw new AppError('Запрос отклонён фильтром провайдера. Попробуйте другое фото.', 'blocked');
+  const out = data?.candidates?.[0]?.content?.parts || [];
+  return out.filter(x => x.text && !x.thought).map(x => x.text).join('');
+}
+
+/* ---------- Mock: локальная «модель» для демо-режима ---------- */
+const MOCK_DISHES = [
+  { name: 'Омлет с тостом', items: [['Омлет из 2 яиц', 120, 180, 13, 14, 1], ['Тост пшеничный', 30, 80, 3, 1, 15]] },
+  { name: 'Гречка с куриной грудкой', items: [['Гречка отварная', 180, 198, 7, 2, 38], ['Куриная грудка', 120, 198, 37, 4, 0]] },
+  { name: 'Овсяная каша с бананом', items: [['Овсянка на молоке', 250, 255, 9, 7, 40], ['Банан', 60, 54, 1, 0, 13]] },
+  { name: 'Салат «Цезарь» с курицей', items: [['Салат с соусом', 150, 210, 5, 17, 9], ['Курица гриль', 80, 130, 20, 5, 0], ['Сухарики', 15, 60, 2, 1, 11]] },
+  { name: 'Паста болоньезе', items: [['Спагетти отварные', 200, 310, 11, 2, 62], ['Соус болоньезе', 120, 190, 12, 12, 7]] },
+  { name: 'Борщ со сметаной', items: [['Борщ', 300, 150, 6, 6, 18], ['Сметана 15%', 20, 32, 1, 3, 1]] },
+  { name: 'Сырники со сметаной', items: [['Сырники, 3 шт.', 150, 330, 24, 15, 24], ['Сметана 15%', 30, 48, 1, 5, 1]] },
+];
+// [регулярка, название, граммы порции, ккал, Б, Ж, У] — на одну порцию/штуку
+const MOCK_FOODS = [
+  [/яйц|яиц|яич/, 'Яйцо', 55, 86, 7, 6, 0],
+  [/кофе|капучин|латте/, 'Кофе', 200, 4, 0, 0, 1],
+  [/молок/, 'Молоко 2,5%', 50, 26, 1, 1, 2],
+  [/хлеб|тост|бутер/, 'Хлеб', 30, 75, 3, 1, 14],
+  [/банан/, 'Банан', 120, 107, 1, 0, 26],
+  [/яблок/, 'Яблоко', 150, 71, 1, 1, 15],
+  [/овсян|каш/, 'Овсяная каша', 250, 220, 7, 4, 38],
+  [/гречк/, 'Гречка отварная', 180, 198, 7, 2, 38],
+  [/рис/, 'Рис отварной', 180, 210, 4, 1, 46],
+  [/кур|цыпл/, 'Курица', 150, 247, 46, 5, 0],
+  [/сырник/, 'Сырники', 150, 330, 24, 15, 24],
+  [/сыр/, 'Сыр', 30, 105, 8, 9, 0],
+  [/творог/, 'Творог 5%', 150, 181, 26, 8, 5],
+  [/йогурт|кефир/, 'Йогурт', 150, 105, 6, 4, 11],
+  [/сметан/, 'Сметана 15%', 20, 32, 1, 3, 1],
+  [/чай/, 'Чай', 200, 2, 0, 0, 0],
+  [/сахар/, 'Сахар', 5, 20, 0, 0, 5],
+  [/салат/, 'Овощной салат', 200, 120, 2, 9, 8],
+  [/суп|борщ|щи/, 'Суп', 300, 180, 7, 8, 18],
+  [/пицц/, 'Пицца', 120, 320, 13, 12, 38],
+  [/шоколад|конфет/, 'Шоколад', 25, 135, 2, 9, 14],
+  [/паст|макарон|спагетт/, 'Макароны', 200, 300, 10, 2, 60],
+  [/картош|картоф|пюре/, 'Картофель', 200, 170, 4, 4, 30],
+  [/котлет/, 'Котлета', 100, 250, 15, 18, 8],
+  [/рыб|лосос|семг/, 'Рыба', 150, 250, 30, 14, 0],
+  [/печень|пирож|круассан/, 'Выпечка', 60, 250, 4, 13, 30],
+];
+const WORD_NUM = { 'один': 1, 'одна': 1, 'одно': 1, 'два': 2, 'две': 2, 'три': 3, 'четыре': 4, 'пять': 5, 'пол': 0.5, 'половин': 0.5 };
+
+function mockFromText(text) {
+  const chunks = text.toLowerCase().split(/,|\+|;|\s+и\s+|\s+с\s+|\s+со\s+/).map(c => c.trim()).filter(Boolean);
+  const items = [];
+  let unknown = 0;
+  for (const chunk of chunks) {
+    const food = MOCK_FOODS.find(f => f[0].test(chunk));
+    if (!food) { unknown++; continue; }
+    const [, name, unit, kcal, p, f, c] = food;
+    let factor = 1;
+    const g = chunk.match(/(\d+[.,]?\d*)\s*(г|гр|грамм|мл)\b/);
+    const n = chunk.match(/(\d+[.,]?\d*)/);
+    if (g) factor = parseFloat(g[1].replace(',', '.')) / unit;
+    else if (n) factor = parseFloat(n[1].replace(',', '.'));
+    else { const w = Object.keys(WORD_NUM).find(w => chunk.includes(w)); if (w) factor = WORD_NUM[w]; }
+    factor = clamp(factor || 1, 0.1, 20);
+    items.push({ name, grams: unit * factor, kcal: kcal * factor, protein: p * factor, fat: f * factor, carbs: c * factor });
+  }
+  if (!items.length) {
+    if (!/[а-яёa-z]{3,}/i.test(text)) return { error: 'no_food' };
+    items.push({ name: 'Блюдо (примерная оценка)', grams: 250, kcal: 350, protein: 15, fat: 14, carbs: 40 });
+    unknown++;
+  }
+  const name = text.trim().replace(/^./, c => c.toUpperCase()).slice(0, 60);
+  return buildMock(name, items, unknown ? 'low' : 'medium');
+}
+
+function buildMock(name, items, confidence) {
+  const total = { grams: 0, kcal: 0, protein: 0, fat: 0, carbs: 0 };
+  for (const i of items) for (const k in total) total[k] += i[k];
+  return { name, items, total, confidence };
+}
+
+async function mockAnalyze(p) {
+  await sleep(1500);
+  if (p.text) return mockFromText(p.text);
+  const d = MOCK_DISHES[Math.floor(Math.random() * MOCK_DISHES.length)];
+  const items = d.items.map(([name, grams, kcal, protein, fat, carbs]) => ({ name, grams, kcal, protein, fat, carbs }));
+  return buildMock(d.name, items, Math.random() < 0.25 ? 'low' : (Math.random() < 0.5 ? 'medium' : 'high'));
+}
+
+const AI = {
+  // Без ключа всегда работает демо-режим
+  effectiveProvider() {
+    const s = state.settings;
+    return s.provider !== 'mock' && s.apiKey.trim() ? s.provider : 'mock';
+  },
+  async analyze(p) {
+    const provider = this.effectiveProvider();
+    if (provider === 'mock') return normalizeResult(await mockAnalyze(p), p.source);
+    const s = { ...state.settings, model: state.settings.model.trim() || DEFAULT_MODELS[provider] };
+    // Если ответ не парсится — один автоматический повтор
+    let lastErr;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const raw = provider === 'openai' ? await callOpenAI(p, s) : await callGemini(p, s);
+      try { return normalizeResult(parseJson(raw), p.source); }
+      catch (e) { if (e.code !== 'parse') throw e; lastErr = e; }
+    }
+    throw lastErr;
+  },
+};
+
+/* ---------- Подготовка изображения ---------- */
+async function loadImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } catch {
+    throw new AppError('Не удалось открыть изображение. Попробуйте другой формат (JPEG или PNG).', 'image');
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+}
+// Ресайз по большей стороне (или квадратная обрезка для миниатюры)
+function toJpeg(img, maxSide, quality, square = false) {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  let sx = 0, sy = 0, sw = w, sh = h;
+  if (square) { const m = Math.min(w, h); sx = (w - m) / 2; sy = (h - m) / 2; sw = sh = m; }
+  const scale = Math.min(1, maxSide / Math.max(sw, sh));
+  const cw = Math.max(1, Math.round(sw * scale)), ch = Math.max(1, Math.round(sh * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch);
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
+/* =====================================================================
+   UI — отрисовка и обработчики
+   ===================================================================== */
+const el = {
+  dateTitle: $('#dateTitle'), demoBanner: $('#demoBanner'), demoText: $('#demoText'),
+  eaten: $('#eaten'), left: $('#left'), leftLabel: $('#leftLabel'), bar: $('#bar'),
+  sumP: $('#sumP'), sumF: $('#sumF'), sumC: $('#sumC'), goalView: $('#goalView'),
+  history: $('#history'), emptyState: $('#emptyState'), historyCount: $('#historyCount'),
+  sheet: $('#sheet'), sheetBackdrop: $('#sheetBackdrop'), sheetBody: $('#sheetBody'),
+  settings: $('#settings'), settingsBackdrop: $('#settingsBackdrop'),
+  toast: $('#toast'), toastText: $('#toastText'), toastAction: $('#toastAction'),
+  dropzone: $('#dropzone'), main: $('#app'),
+};
+
+/* ---------- Главный экран ---------- */
+function renderHeader() {
+  const d = new Date();
+  el.dateTitle.textContent = 'Сегодня, ' + d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+}
+
+function renderBanner() {
+  const s = state.settings;
+  const demo = AI.effectiveProvider() === 'mock';
+  el.demoBanner.classList.toggle('hidden', !demo);
+  el.demoText.textContent = s.provider === 'mock'
+    ? 'Демо-режим. Добавьте API-ключ в настройках для реального распознавания.'
+    : 'Не указан API-ключ — работает демо-режим.';
+}
+
+function renderProgress() {
+  const goal = state.settings.dailyGoal;
+  const t = state.entries.reduce((a, e) => ({ kcal: a.kcal + e.kcal, p: a.p + e.protein, f: a.f + e.fat, c: a.c + e.carbs }), { kcal: 0, p: 0, f: 0, c: 0 });
+  const over = t.kcal > goal;
+  el.eaten.textContent = fmt(t.kcal);
+  el.leftLabel.textContent = over ? 'Сверх нормы на' : 'Осталось';
+  el.left.textContent = fmt(Math.abs(goal - t.kcal));
+  el.left.parentElement.classList.toggle('text-warn-text', over);
+  el.bar.classList.toggle('over', over);
+  el.bar.firstElementChild.style.width = clamp(t.kcal / goal * 100, 0, 100) + '%';
+  el.bar.setAttribute('aria-valuemax', goal);
+  el.bar.setAttribute('aria-valuenow', Math.round(t.kcal));
+  el.bar.setAttribute('aria-valuetext', over ? `Сверх нормы на ${fmt(t.kcal - goal)} ккал` : `Съедено ${fmt(t.kcal)} из ${fmt(goal)} ккал`);
+  el.sumP.textContent = fmt(t.p); el.sumF.textContent = fmt(t.f); el.sumC.textContent = fmt(t.c);
+  el.goalView.textContent = fmt(goal);
+}
+
+function entryHTML(e) {
+  const time = (e.createdAt.split('T')[1] || '').slice(0, 5);
+  const thumb = e.thumb
+    ? `<img class="thumb" src="${esc(e.thumb)}" alt="" loading="lazy">`
+    : `<div class="thumb thumb-icon" aria-hidden="true">${ICONS.text}</div>`;
+  return `
+    <li class="entry fade-in" data-id="${esc(e.id)}">
+      <div class="entry-bg" aria-hidden="true">${ICONS.trash}</div>
+      <div class="entry-row">
+        ${thumb}
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-[15px] font-medium">${esc(e.name)}</div>
+          <div class="truncate text-[13px] text-muted tnum">${time} · ${fmt(e.grams)} г · Б ${fmt(e.protein)} · Ж ${fmt(e.fat)} · У ${fmt(e.carbs)}</div>
+        </div>
+        <div class="text-right tnum shrink-0">
+          <div class="text-[16px] font-semibold">${fmt(e.kcal)}</div>
+          <div class="text-[13px] text-muted -mt-0.5">ккал</div>
+        </div>
+        <button type="button" class="del-btn icon-btn -mr-1 shrink-0" data-del="${esc(e.id)}" aria-label="Удалить «${esc(e.name)}»">${ICONS.trash}</button>
+      </div>
+    </li>`;
+}
+
+function renderHistory() {
+  const list = state.entries;
+  el.history.innerHTML = list.map(entryHTML).join('');
+  el.emptyState.classList.toggle('hidden', list.length > 0);
+  el.historyCount.textContent = list.length ? `${list.length} ${plural(list.length, ['запись', 'записи', 'записей'])}` : '';
+  el.history.querySelectorAll('.entry').forEach(attachSwipe);
+}
+
+function plural(n, forms) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return forms[0];
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return forms[1];
+  return forms[2];
+}
+
+function renderAll() {
+  renderHeader(); renderBanner(); renderProgress(); renderHistory();
+}
+
+/* ---------- Свайп для удаления (мобильные) ---------- */
+function attachSwipe(li) {
+  const row = li.querySelector('.entry-row');
+  let x0 = 0, y0 = 0, dx = 0, mode = null; // mode: null | 'swipe' | 'scroll'
+  row.addEventListener('touchstart', e => {
+    const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; mode = null;
+    row.style.transition = 'none';
+  }, { passive: true });
+  row.addEventListener('touchmove', e => {
+    const t = e.touches[0], mx = t.clientX - x0, my = t.clientY - y0;
+    if (!mode && (Math.abs(mx) > 8 || Math.abs(my) > 8)) mode = Math.abs(mx) > Math.abs(my) ? 'swipe' : 'scroll';
+    if (mode !== 'swipe') return;
+    dx = Math.min(0, mx);
+    row.style.transform = `translateX(${dx}px)`;
+  }, { passive: true });
+  const end = () => {
+    row.style.transition = '';
+    if (mode === 'swipe' && dx < -Math.min(110, row.offsetWidth * 0.3)) {
+      row.style.transform = 'translateX(-100%)';
+      setTimeout(() => deleteEntry(li.dataset.id), 180);
+    } else {
+      row.style.transform = '';
+    }
+    mode = null;
+  };
+  row.addEventListener('touchend', end);
+  row.addEventListener('touchcancel', end);
+}
+
+/* ---------- Сохранение / удаление записей ---------- */
+function persistToday() {
+  return Storage.saveEntries(state.day, state.entries) === 'ok';
+}
+
+function deleteEntry(id) {
+  const index = state.entries.findIndex(e => e.id === id);
+  if (index === -1) return;
+  const [entry] = state.entries.splice(index, 1);
+  persistToday();
+  state.lastDeleted = { entry, day: state.day, index };
+  renderProgress(); renderHistory();
+  showToast('Запись удалена', 'Отменить', undoDelete);
+}
+
+function undoDelete() {
+  const d = state.lastDeleted;
+  if (!d) return;
+  state.lastDeleted = null;
+  if (d.day === state.day) {
+    state.entries.splice(Math.min(d.index, state.entries.length), 0, d.entry);
+    persistToday();
+    renderProgress(); renderHistory();
+  } else {
+    const list = Storage.loadEntries(d.day);
+    list.splice(Math.min(d.index, list.length), 0, d.entry);
+    Storage.saveEntries(d.day, list);
+  }
+  hideToast();
+}
+
+function saveDraft() {
+  const d = state.draft;
+  if (!d) return;
+  const v = draftValues();
+  if (v.grams < 1) return;
+  checkDayChange();
+  const entry = {
+    id: uid(),
+    createdAt: localIso(new Date()),
+    source: d.source,
+    name: ($('#dName')?.value || d.name).trim() || 'Без названия',
+    grams: v.grams, kcal: v.kcal, protein: v.protein, fat: v.fat, carbs: v.carbs,
+    thumb: d.thumb || null,
+    note: d.source === 'text' ? d.note : '',
+  };
+  state.entries.unshift(entry);
+  let ok = persistToday();
+  if (!ok && entry.thumb) {
+    // Память всё ещё заполнена — сохраняем запись без фото
+    entry.thumb = null;
+    ok = persistToday();
+    if (ok) showToast('Запись сохранена без фото — память браузера заполнена');
+  }
+  if (!ok) {
+    state.entries.shift();
+    showToast('Не удалось сохранить: память браузера заполнена. Сделайте экспорт и очистите данные.');
+    return;
+  }
+  closeSheet();
+  renderProgress(); renderHistory();
+}
+
+/* ---------- Toast ---------- */
+let toastTimer = 0, toastHandler = null;
+function showToast(text, actionLabel, onAction) {
+  clearTimeout(toastTimer);
+  el.toastText.textContent = text;
+  toastHandler = onAction || null;
+  el.toastAction.textContent = actionLabel || '';
+  el.toastAction.classList.toggle('hidden', !onAction);
+  el.toast.classList.toggle('has-action', !!onAction);
+  el.toast.classList.add('show');
+  toastTimer = setTimeout(hideToast, 5000);
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  el.toast.classList.remove('show');
+  toastHandler = null;
+  state.lastDeleted = null; // после исчезновения toast удаление окончательное
+}
+el.toastAction.addEventListener('click', () => { if (toastHandler) toastHandler(); });
+
+/* ---------- Модальные слои (шторка, настройки) ---------- */
+let openLayer = null, returnFocus = null;
+function showLayer(panel, backdrop) {
+  if (openLayer && openLayer.panel !== panel) hideLayer();
+  if (!openLayer) returnFocus = document.activeElement;
+  openLayer = { panel, backdrop };
+  panel.classList.add('open'); backdrop.classList.add('open');
+  el.main.inert = true;
+  document.body.style.overflow = 'hidden';
+}
+function hideLayer() {
+  if (!openLayer) return;
+  openLayer.panel.classList.remove('open'); openLayer.backdrop.classList.remove('open');
+  openLayer = null;
+  el.main.inert = false;
+  document.body.style.overflow = '';
+  if (returnFocus && document.contains(returnFocus)) returnFocus.focus({ preventScroll: true });
+}
+function focusFirst(panel, selector) {
+  setTimeout(() => { const t = panel.querySelector(selector); if (t) t.focus({ preventScroll: true }); }, 60);
+}
+document.addEventListener('keydown', e => {
+  if (!openLayer) return;
+  if (e.key === 'Escape') { e.preventDefault(); openLayer.panel === el.sheet ? closeSheet() : closeSettings(); return; }
+  if (e.key === 'Tab') {
+    // Держим фокус внутри открытого окна
+    const f = [...openLayer.panel.querySelectorAll('button, input, select, textarea, a[href]')]
+      .filter(n => !n.disabled && n.offsetParent !== null && n.tabIndex !== -1);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+});
+
+/* ---------- Карточка подтверждения ---------- */
+function openSheet() { showLayer(el.sheet, el.sheetBackdrop); }
+function closeSheet() {
+  state.reqSeq++; // отменяем незавершённый запрос
+  state.pending = null; state.draft = null;
+  if (openLayer?.panel === el.sheet) hideLayer();
+}
+el.sheetBackdrop.addEventListener('click', closeSheet);
+
+function sheetMedia(p) {
+  if (!p) return '<div class="sk w-16 h-16 shrink-0"></div>';
+  if (p.source === 'text') return `<div class="thumb thumb-icon !w-16 !h-16 !rounded-2xl" aria-hidden="true">${ICONS.text}</div>`;
+  if (p.thumb) return `<img class="thumb !w-16 !h-16 !rounded-2xl" src="${esc(p.thumb)}" alt="Фото блюда">`;
+  return '<div class="sk w-16 h-16 shrink-0 !rounded-2xl"></div>';
+}
+
+function renderSheetLoading(p) {
+  el.sheetBody.innerHTML = `
+    <div class="flex items-center gap-3">
+      ${sheetMedia(p)}
+      <div class="flex-1 space-y-2">
+        <div class="sk h-5 w-3/4"></div>
+        <div class="sk h-4 w-1/3"></div>
+      </div>
+    </div>
+    <div class="sk h-10 w-2/5 mt-6"></div>
+    <div class="grid grid-cols-3 gap-2 mt-4"><div class="sk h-14"></div><div class="sk h-14"></div><div class="sk h-14"></div></div>
+    <p class="mt-4 text-[13px] text-muted" aria-live="polite">${p?.source === 'text' ? 'Считаем калории…' : 'Распознаём блюдо…'}</p>
+    <div class="grid grid-cols-[1fr_2fr] gap-2 mt-4">
+      <button type="button" class="btn btn-ghost" data-act="cancel">Отмена</button>
+      <button type="button" class="btn btn-primary" disabled>Сохранить</button>
+    </div>`;
+  el.sheet.setAttribute('aria-busy', 'true');
+  focusFirst(el.sheet, '[data-act="cancel"]');
+}
+
+function renderSheetError(message) {
+  const p = state.pending;
+  el.sheet.removeAttribute('aria-busy');
+  el.sheetBody.innerHTML = `
+    <div class="flex items-center gap-3">
+      ${sheetMedia(p)}
+      <div class="flex-1 min-w-0">
+        <div class="text-[15px] font-semibold">Не получилось</div>
+        ${p?.text ? `<div class="truncate text-[13px] text-muted">«${esc(p.text)}»</div>` : ''}
+      </div>
+    </div>
+    <p class="mt-4 text-[15px] text-warn-text" role="alert">${esc(message)}</p>
+    <div class="grid grid-cols-2 gap-2 mt-5">
+      <button type="button" class="btn btn-ghost" data-act="cancel">Отмена</button>
+      ${p ? '<button type="button" class="btn btn-primary" data-act="retry">Повторить</button>' : '<span></span>'}
+    </div>`;
+  focusFirst(el.sheet, p ? '[data-act="retry"]' : '[data-act="cancel"]');
+}
+
+// Текущие значения с учётом изменённого веса (пропорциональный пересчёт)
+function draftValues() {
+  const d = state.draft, b = d.base;
+  const factor = b.grams ? d.grams / b.grams : 1;
+  return {
+    grams: d.grams,
+    kcal: Math.round(b.kcal * factor), protein: Math.round(b.protein * factor),
+    fat: Math.round(b.fat * factor), carbs: Math.round(b.carbs * factor), factor,
+  };
+}
+
+function itemsHTML(factor) {
+  const items = state.draft.items;
+  if (items.length < 2) return '';
+  return items.map(i => `
+    <li class="flex justify-between gap-3 py-1.5 border-b border-line last:border-0">
+      <span class="min-w-0 truncate">${esc(i.name)}</span>
+      <span class="shrink-0 text-muted tnum">${fmt(i.grams * factor)} г · ${fmt(i.kcal * factor)} ккал</span>
+    </li>`).join('');
+}
+
+function renderSheetResult() {
+  const d = state.draft;
+  const v = draftValues();
+  el.sheet.removeAttribute('aria-busy');
+  const items = itemsHTML(v.factor);
+  el.sheetBody.innerHTML = `
+    <div class="flex items-center gap-3">
+      ${sheetMedia(state.pending)}
+      <div class="flex-1 min-w-0">
+        <label for="dName" class="sr-only">Название блюда</label>
+        <input id="dName" class="w-full bg-transparent text-[17px] font-semibold rounded-lg px-1 -mx-1 py-1 border border-transparent hover:border-line focus:border-accent focus:outline-none" value="${esc(d.name)}" maxlength="120">
+        ${d.confidence === 'low' ? `<span class="pill pill-warn mt-1">${ICONS.alert}Оценка приблизительная</span>` : ''}
+      </div>
+    </div>
+
+    <div class="mt-5 flex items-end justify-between gap-3">
+      <div>
+        <div class="tnum text-[32px] font-semibold leading-none"><span id="dKcal">${fmt(v.kcal)}</span> <span class="text-[17px] font-medium text-muted">ккал</span></div>
+      </div>
+      <div class="flex items-center gap-1" role="group" aria-label="Вес порции">
+        <button type="button" class="icon-btn border border-line" data-act="minus" aria-label="Уменьшить вес на 10 г">−</button>
+        <label for="dGrams" class="sr-only">Вес в граммах</label>
+        <div class="relative">
+          <input id="dGrams" class="field tnum text-center !w-[92px] !px-2 pr-6" type="number" inputmode="numeric" min="1" max="5000" value="${d.grams}">
+          <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[13px] text-muted pointer-events-none">г</span>
+        </div>
+        <button type="button" class="icon-btn border border-line" data-act="plus" aria-label="Увеличить вес на 10 г">+</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-2 mt-4 tnum">
+      <div class="macro"><div class="text-[13px] text-muted">Белки</div><div class="text-[15px] font-medium"><span id="dP">${fmt(v.protein)}</span> г</div></div>
+      <div class="macro"><div class="text-[13px] text-muted">Жиры</div><div class="text-[15px] font-medium"><span id="dF">${fmt(v.fat)}</span> г</div></div>
+      <div class="macro"><div class="text-[13px] text-muted">Углеводы</div><div class="text-[15px] font-medium"><span id="dC">${fmt(v.carbs)}</span> г</div></div>
+    </div>
+
+    ${items ? `<details class="mt-3 text-[13px]"><summary class="cursor-pointer text-muted min-h-[44px] flex items-center">Состав</summary><ul id="dItems" class="mt-1">${items}</ul></details>` : ''}
+
+    <div class="grid grid-cols-[1fr_2fr] gap-2 mt-5">
+      <button type="button" class="btn btn-ghost" data-act="cancel">Отмена</button>
+      <button type="button" class="btn btn-primary" data-act="save" id="dSave">Сохранить</button>
+    </div>`;
+
+  const gramsInput = $('#dGrams');
+  gramsInput.addEventListener('input', () => { d.grams = clamp(Math.round(Number(gramsInput.value) || 0), 0, 5000); updateDraftNumbers(); });
+  gramsInput.addEventListener('keydown', e => { if (e.key === 'Enter') saveDraft(); });
+  $('#dName').addEventListener('input', e => { d.name = e.target.value; });
+  $('#dName').addEventListener('keydown', e => { if (e.key === 'Enter') saveDraft(); });
+  focusFirst(el.sheet, '#dSave');
+}
+
+// Обновляем только цифры, чтобы не терять фокус в поле веса
+function updateDraftNumbers() {
+  const v = draftValues();
+  $('#dKcal').textContent = fmt(v.kcal);
+  $('#dP').textContent = fmt(v.protein);
+  $('#dF').textContent = fmt(v.fat);
+  $('#dC').textContent = fmt(v.carbs);
+  const list = $('#dItems'); if (list) list.innerHTML = itemsHTML(v.factor);
+  $('#dSave').disabled = v.grams < 1;
+}
+
+function stepGrams(delta) {
+  const d = state.draft; if (!d) return;
+  d.grams = clamp((d.grams || 0) + delta, 1, 5000);
+  $('#dGrams').value = d.grams;
+  updateDraftNumbers();
+}
+
+el.sheetBody.addEventListener('click', e => {
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  if (act === 'cancel') closeSheet();
+  else if (act === 'save') saveDraft();
+  else if (act === 'retry' && state.pending) runAnalysis(state.pending);
+  else if (act === 'minus') stepGrams(-10);
+  else if (act === 'plus') stepGrams(10);
+});
+
+/* ---------- Пайплайн распознавания ---------- */
+async function runAnalysis(payload) {
+  const id = ++state.reqSeq;
+  state.pending = payload; state.draft = null;
+  openSheet();
+  renderSheetLoading(payload);
+  try {
+    const r = await AI.analyze(payload);
+    if (id !== state.reqSeq) return; // пользователь отменил или начал новый запрос
+    state.draft = {
+      base: r.total, name: r.name, grams: r.total.grams, items: r.items, confidence: r.confidence,
+      source: payload.source, thumb: payload.thumb || null, note: payload.text || '',
+    };
+    renderSheetResult();
+  } catch (err) {
+    if (id !== state.reqSeq) return;
+    console.error(err);
+    renderSheetError(err instanceof AppError ? err.message : 'Что-то пошло не так. Попробуйте ещё раз.');
+  }
+}
+
+async function handleFile(file) {
+  if (!file) return;
+  if (file.type && !file.type.startsWith('image/')) { showToast('Это не изображение'); return; }
+  const id = ++state.reqSeq;
+  state.pending = { source: 'photo' };
+  openSheet();
+  renderSheetLoading(null);
+  try {
+    const img = await loadImage(file);
+    const payload = { source: 'photo', image: toJpeg(img, 1024, 0.8), thumb: toJpeg(img, 200, 0.7, true) };
+    if (id !== state.reqSeq) return;
+    runAnalysis(payload);
+  } catch (err) {
+    if (id !== state.reqSeq) return;
+    state.pending = null;
+    renderSheetError(err instanceof AppError ? err.message : 'Не удалось обработать фото.');
+  }
+}
+
+$('#photoBtn').addEventListener('click', () => $('#cameraInput').click());
+$('#galleryBtn').addEventListener('click', () => $('#fileInput').click());
+for (const id of ['#cameraInput', '#fileInput']) {
+  $(id).addEventListener('change', e => { const f = e.target.files?.[0]; e.target.value = ''; handleFile(f); });
+}
+
+$('#textForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const input = $('#textInput');
+  const text = input.value.trim();
+  if (!text) { input.focus(); return; }
+  input.value = '';
+  input.blur();
+  runAnalysis({ source: 'text', text });
+});
+
+// Drag & drop и вставка из буфера обмена (ПК)
+let dragDepth = 0;
+const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+window.addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; el.dropzone.classList.add('show'); });
+window.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', e => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) el.dropzone.classList.remove('show'); });
+window.addEventListener('drop', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; el.dropzone.classList.remove('show');
+  if (openLayer?.panel === el.settings) return;
+  handleFile([...e.dataTransfer.files].find(f => f.type.startsWith('image/')) || e.dataTransfer.files[0]);
+});
+window.addEventListener('paste', e => {
+  if (openLayer) return;
+  const file = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+  if (file) { e.preventDefault(); handleFile(file); }
+});
+
+// Удаление кнопкой (ПК)
+el.history.addEventListener('click', e => {
+  const btn = e.target.closest('[data-del]');
+  if (!btn) return;
+  const li = btn.closest('.entry');
+  li.style.maxHeight = li.offsetHeight + 'px';
+  requestAnimationFrame(() => { li.classList.add('removing'); li.style.maxHeight = '0px'; });
+  setTimeout(() => deleteEntry(btn.dataset.del), 180);
+});
+
+/* ---------- Настройки ---------- */
+const sf = {
+  goal: $('#goalInput'), provider: $('#providerSelect'), model: $('#modelInput'), modelList: $('#modelList'),
+  key: $('#keyInput'), keyToggle: $('#keyToggle'), aiFields: $('#aiFields'),
+};
+
+function fillSettingsForm() {
+  const s = state.settings;
+  sf.goal.value = s.dailyGoal;
+  sf.provider.value = s.provider;
+  sf.model.value = s.model;
+  sf.key.value = s.apiKey;
+  sf.key.type = 'password';
+  sf.keyToggle.setAttribute('aria-pressed', 'false');
+  sf.keyToggle.setAttribute('aria-label', 'Показать ключ');
+  syncProviderFields();
+}
+function syncProviderFields() {
+  const p = sf.provider.value;
+  sf.aiFields.classList.toggle('hidden', p === 'mock');
+  sf.modelList.innerHTML = (MODEL_SUGGESTIONS[p] || []).map(m => `<option value="${m}"></option>`).join('');
+  sf.model.placeholder = DEFAULT_MODELS[p] || '';
+}
+function saveSettingsFromForm() {
+  const s = state.settings;
+  const goal = Math.round(Number(sf.goal.value));
+  if (Number.isFinite(goal) && goal >= 500 && goal <= 10000) s.dailyGoal = goal;
+  s.provider = sf.provider.value;
+  s.model = sf.model.value.trim();
+  s.apiKey = sf.key.value.trim();
+  if (!Storage.saveSettings(s)) showToast('Не удалось сохранить настройки');
+  renderBanner(); renderProgress();
+}
+
+function openSettings() {
+  fillSettingsForm();
+  showLayer(el.settings, el.settingsBackdrop);
+  focusFirst(el.settings, '#goalInput');
+}
+function closeSettings() {
+  saveSettingsFromForm();
+  sf.goal.value = state.settings.dailyGoal; // вернуть корректное значение, если ввели мусор
+  if (openLayer?.panel === el.settings) hideLayer();
+}
+
+$('#settingsBtn').addEventListener('click', openSettings);
+$('#demoOpenSettings').addEventListener('click', openSettings);
+$('#settingsClose').addEventListener('click', closeSettings);
+$('#settingsDone').addEventListener('click', closeSettings);
+el.settingsBackdrop.addEventListener('click', closeSettings);
+
+sf.goal.addEventListener('change', saveSettingsFromForm);
+sf.model.addEventListener('change', saveSettingsFromForm);
+sf.key.addEventListener('change', saveSettingsFromForm);
+sf.provider.addEventListener('change', () => {
+  const p = sf.provider.value;
+  if (p !== 'mock') sf.model.value = DEFAULT_MODELS[p]; // у каждого провайдера свои модели
+  syncProviderFields();
+  saveSettingsFromForm();
+});
+sf.keyToggle.addEventListener('click', () => {
+  const show = sf.key.type === 'password';
+  sf.key.type = show ? 'text' : 'password';
+  sf.keyToggle.setAttribute('aria-pressed', String(show));
+  sf.keyToggle.setAttribute('aria-label', show ? 'Скрыть ключ' : 'Показать ключ');
+});
+
+// Экспорт (без API-ключа)
+$('#exportBtn').addEventListener('click', () => {
+  const entries = {};
+  for (const day of Storage.entryDays()) entries[day] = Storage.loadEntries(day);
+  const { dailyGoal, provider, model } = state.settings;
+  const data = { app: 'calories-by-photo', version: 1, exportedAt: localIso(new Date()), settings: { dailyGoal, provider, model }, entries };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `calories-${todayKey()}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
+// Импорт: записи объединяются по id, существующие не теряются
+$('#importBtn').addEventListener('click', () => $('#importInput').click());
+$('#importInput').addEventListener('change', async e => {
+  const file = e.target.files?.[0]; e.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!data || typeof data !== 'object' || !data.entries || typeof data.entries !== 'object') throw new Error('format');
+    let added = 0, failed = false;
+    for (const [day, arr] of Object.entries(data.entries)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Array.isArray(arr)) continue;
+      const list = Storage.loadEntries(day);
+      const ids = new Set(list.map(x => x.id));
+      for (const raw of arr) {
+        const en = sanitizeEntry(raw);
+        if (en && !ids.has(en.id)) { list.push(en); ids.add(en.id); added++; }
+      }
+      list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      if (Storage.saveEntries(day, list) !== 'ok') failed = true;
+    }
+    const goal = Number(data.settings?.dailyGoal);
+    if (Number.isFinite(goal) && goal >= 500 && goal <= 10000) { state.settings.dailyGoal = Math.round(goal); Storage.saveSettings(state.settings); sf.goal.value = state.settings.dailyGoal; }
+    state.entries = Storage.loadEntries(state.day);
+    renderAll();
+    showToast(failed ? 'Импорт частично: не хватило памяти' : `Импортировано записей: ${added}`);
+  } catch {
+    showToast('Не удалось прочитать файл. Нужен JSON, выгруженный из этого приложения.');
+  }
+});
+
+$('#clearBtn').addEventListener('click', () => {
+  if (!confirm('Удалить все записи и настройки, включая API-ключ? Это действие нельзя отменить.')) return;
+  Storage.clearAll();
+  state.settings = { ...DEFAULT_SETTINGS };
+  state.entries = [];
+  state.lastDeleted = null;
+  hideLayer();
+  renderAll();
+  showToast('Все данные удалены');
+});
+
+/* ---------- Смена дня после полуночи ---------- */
+function checkDayChange() {
+  const k = todayKey();
+  if (k === state.day) return;
+  state.day = k;
+  state.entries = Storage.loadEntries(k);
+  renderAll();
+}
+setInterval(checkDayChange, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDayChange(); });
+window.addEventListener('focus', checkDayChange);
+
+// Синхронизация между вкладками
+window.addEventListener('storage', e => {
+  if (e.key === 'settings' || e.key === null) state.settings = Storage.loadSettings();
+  if (e.key === 'entries:' + state.day || e.key === null) state.entries = Storage.loadEntries(state.day);
+  renderAll();
+});
+
+// Подсказка про drag & drop — только для мыши
+if (!matchMedia('(pointer: fine)').matches) document.querySelectorAll('.pointer-fine').forEach(n => n.remove());
+
+/* ---------- Запуск ---------- */
+state.settings = Storage.loadSettings();
+state.entries = Storage.loadEntries(state.day);
+renderAll();
+</script>
+</body>
+</html>
